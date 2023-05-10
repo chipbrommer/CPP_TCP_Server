@@ -21,10 +21,8 @@ int main()
 
     for (;;)
     {
-        std::cout << ".";
+        // Server is running...
     }
-
-    // Server is running...
 
     server.Stop();
 

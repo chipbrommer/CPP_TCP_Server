@@ -121,11 +121,29 @@ namespace Essentials
 		class TCP_Server
 		{
 		public:
+
+			/// <summary>Default constructor</summary>
 			TCP_Server();
+
+			/// <summary>Constructor with default parameters</summary>
+			/// <param name="address"></param>
+			/// <param name="port"></param>
 			TCP_Server(const std::string address, const int16_t port);
+
+			/// <summary>Default deconstructor</summary>
 			~TCP_Server();
+
+			/// <summary>Configures the server to a desired address and port number</summary>
+			/// <param name="address"> -[in]- Address to serve the TCP server on.</param>
+			/// <param name="port"> -[in]- Port to serve the TCP server on.</param>
+			/// <returns>0 if successful, -1 if fails. Call Serial::GetLastError to find out more.</returns>
 			int8_t Configure(const std::string address, const int16_t port);
+
+			/// <summary>Starts the TCP server.</summary>
+			/// <returns>0 if successful, -1 if fails. Call Serial::GetLastError to find out more.</returns>
 			int8_t Start();
+
+			/// <summary>Stops the TCP server if it is running and cleans up the monitor thread.</summary>
 			void Stop();
 			
 			/// <summary>Get the last error in string format</summary>
@@ -144,24 +162,30 @@ namespace Essentials
 			/// <returns>true = valid, false = invalid</returns>
 			bool ValidatePort(const int16_t port);
 
-
+			/// <summary>Starts a thread to monitor the TCP connection.</summary>
 			void Monitor();
 
+			/// <summary>Handles a client connection to the server</summary>
+			/// <param name="clientSocket"> -[in]- socket descriptor for the client</param>
+			/// <param name="clientIP"> -[in]- address of the client</param>
 			void HandleClient(int32_t clientSocket, const std::string& clientIP);
+
+			/// <summary>Cleans up a vector of client threads.</summary>
+			/// <param name="clientThreads"> -[in]- A vector of threads, each an individual connection to a single client.</param>
 			void CleanUpClientThreads(std::vector<std::thread>& clientThreads);
 
-			std::string		mTitle;
-			std::string		mAddress;
-			int16_t			mPort;
-			TcpServerError	mLastError;
-			std::thread		mMonitorThread;
-			std::atomic<bool> mStopFlag;
+			std::string			mTitle;				// Title of the class - used when using CPP_LOGGER
+			std::string			mAddress;			// Address of the TCP server
+			int16_t				mPort;				// Port of the TCP server
+			TcpServerError		mLastError;			// Holds last error of the TCP server
+			std::thread			mMonitorThread;		// Holds the thread for the monitor. 
+			std::atomic<bool>	mStopFlag;			// Stop flag for the server. 
 
 #ifdef WIN32
-			WSADATA				mWsaData;
-			SOCKET				mSocket;
+			WSADATA				mWsaData;			// Win Sock data
+			SOCKET				mSocket;			// File Descriptor for windows. 
 #else
-			int32_t				mSocket;
+			int32_t				mSocket;			// File Descriptor for linux. 
 #endif
 		};
 	} // Communications
