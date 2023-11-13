@@ -70,6 +70,8 @@ namespace Essentials
 	{
         TCPServer::TCPServer(int port) : port_(port), serverSocket_(-1), monitoringThread_(&TCPServer::MonitorClients, this) {}
 
+        TCPServer::TCPServer(int port, const std::string& ip) : port_(port), ipAddress_(ip), serverSocket_(-1), monitoringThread_(&TCPServer::MonitorClients, this) {}
+
         TCPServer::~TCPServer() {
             if (serverSocket_ != -1) {
                 closesocket(serverSocket_);
