@@ -32,6 +32,8 @@
 #include <atomic>						// Thread instance stop flag
 #include <vector>						// Client thread list 
 #include <iostream>						// Prints 
+#include <fstream>
+#include <mutex>
 //
 //	Defines:
 //          name                        reason defined
@@ -188,6 +190,45 @@ namespace Essentials
 			int32_t				mSocket;			// File Descriptor for linux. 
 #endif
 		};
+	
+
+
+
+		class TCPServer {
+		public:
+			TCPServer(int port);
+
+			TCPServer(int port, const std::string& ipAddress);
+
+			~TCPServer();
+
+			void Start();
+
+			void MonitorClients();
+
+			void ReceiveFileFromClient(int clientSocket);
+
+		private:
+			int port_;
+			std::string ipAddress_;
+			int serverSocket_;
+			std::vector<int> clients_;
+			std::mutex mutex_;
+			std::thread monitoringThread_;
+			bool stopMonitoring_{ false };
+
+			bool InitializeServer();
+
+			void CheckClientStatus();
+
+			void HandleClient(int clientSocket);
+
+			void ReceiveFileData(int clientSocket, const std::string& fileName, size_t fileSize);
+		
+			int AcceptConnection();
+		};
+
+
 	} // Communications
 } // Essentials
 

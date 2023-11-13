@@ -9,22 +9,22 @@ int main()
     std::string ipAddress = "127.0.0.1";  // Example IP address
     int16_t port = 8080;  // Example port
 
-    Essentials::Communications::TCP_Server server(ipAddress, port);
-    std::cout << Essentials::Communications::TcpServerVersion;
+    //Essentials::Communications::TCP_Server server(ipAddress, port);
+    //std::cout << Essentials::Communications::TcpServerVersion;
 
-    if (server.Start() < 0) 
-    {
-        std::cerr << "Failed to start the server." << std::endl;
-        std::cout << server.GetLastError();
-        return 1;
-    }
+    //if (server.Start() < 0) 
+    //{
+    //    std::cerr << "Failed to start the server." << std::endl;
+    //    std::cout << server.GetLastError();
+    //    return 1;
+    //}
 
-    for (;;)
-    {
-        // Server is running...
-    }
+    //for (;;)
+    //{
+    //    // Server is running...
+    //}
 
-    server.Stop();
+    //server.Stop();
 
     return 0;
 }

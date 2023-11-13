@@ -23,183 +23,10 @@ namespace Essentials
 {
 	namespace Communications
 	{
-		TCP_Server::TCP_Server()
-		{
-			mTitle = "TCP Server";
-			mAddress = "\n";
-			mPort = -1;
-			mLastError = TcpServerError::NONE;
 
-#ifdef WIN32
-			mWsaData = {};
-			mSocket = INVALID_SOCKET;
-#else
-			mSocket = -1;
-#endif
-		}
 
-		TCP_Server::TCP_Server(const std::string address, const int16_t port)
-		{
-			if (ValidateIP(address) >= 0)
-			{
-				mAddress = address;
-			}
-			else
-			{
-				mLastError = TcpServerError::BAD_ADDRESS;
-			}
 
-			if (ValidatePort(port) == true)
-			{
-				mPort = port;
-			}
-			else
-			{
-				mLastError = TcpServerError::BAD_PORT;
-			}
 
-			mTitle = "TCP Server";
-			mLastError = TcpServerError::NONE;
-
-#ifdef WIN32
-			mWsaData = {};
-			mSocket = INVALID_SOCKET;
-#else
-			mSocket = -1;
-#endif
-		}
-
-		TCP_Server::~TCP_Server()
-		{
-			Stop();
-		}
-
-		int8_t TCP_Server::Configure(const std::string address, const int16_t port)
-		{
-			if (ValidateIP(address) >= 0)
-			{
-				mAddress = address;
-			}
-			else
-			{
-				mLastError = TcpServerError::BAD_ADDRESS;
-				return -1;
-			}
-
-			if (ValidatePort(port) == true)
-			{
-				mPort = port;
-			}
-			else
-			{
-				mLastError = TcpServerError::BAD_PORT;
-				return -1;
-			}
-
-			return 0;
-		}
-
-		int8_t TCP_Server::Start()
-		{
-			if (mAddress == "\n" || mAddress.empty())
-			{
-				mLastError = TcpServerError::ADDRESS_NOT_SET;
-				return -1;
-			}
-
-			if (mPort == -1)
-			{
-				mLastError = TcpServerError::PORT_NOT_SET;
-				return -1;
-			}
-
-#ifdef WIN32
-			if (mSocket != INVALID_SOCKET)
-			{
-				mLastError = TcpServerError::SERVER_ALREADY_STARTED;
-				return -1;
-			}
-
-			if (WSAStartup(MAKEWORD(2, 2), &mWsaData) != 0)
-			{
-				mLastError = TcpServerError::WINSOCK_FAILURE;
-				return -1;
-			}
-
-			mSocket = socket(AF_INET, SOCK_STREAM, 0);
-
-			if (mSocket == INVALID_SOCKET)
-			{
-				mLastError = TcpServerError::WINDOWS_SOCKET_OPEN_FAILURE;
-				WSACleanup();
-				return -1;
-			}
-#else
-			if (mSocket != -1)
-			{
-				mLastError = TcpServerError::SERVER_ALREADY_STARTED;
-				return -1;
-			}
-
-			mSocket = socket(AF_INET, SOCK_STREAM, 0);
-
-			if (mSocket == -1)
-			{
-				mLastError = TcpServerError::LINUX_SOCKET_OPEN_FAILURE;
-				return 1;
-			}
-#endif
-			// Set up server details
-			sockaddr_in serverAddress{};
-			serverAddress.sin_family = AF_INET;
-			serverAddress.sin_port = htons(mPort);
-			if (inet_pton(AF_INET, mAddress.c_str(), &(serverAddress.sin_addr)) <= 0)
-			{
-				mLastError = TcpServerError::ADDRESS_NOT_SUPPORTED;
-				return -1;
-			}
-
-			if (bind(mSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == -1) 
-			{
-				mLastError = TcpServerError::BIND_FAILED;
-				return -1;
-			}
-
-			// Listen for incoming connections
-			if (listen(mSocket, SOMAXCONN) == -1)
-			{
-				mLastError = TcpServerError::LISTEN_FAILED;
-				return -1;
-			}
-
-			// Start the monitor thread
-			mStopFlag = false;
-			mMonitorThread = std::thread(&TCP_Server::Monitor, this);
-
-			return 0;
-		}
-
-		void TCP_Server::Stop()
-		{
-			// Set the stop flag to true to terminate the monitor thread
-			mStopFlag = true;
-
-			// Wait for the monitor thread to finish
-			if (mMonitorThread.joinable()) 
-			{
-				mMonitorThread.join();
-			}
-
-#ifdef WIN32
-			closesocket(mSocket);
-			WSACleanup();
-			mSocket = INVALID_SOCKET;
-#else
-			close(mSocket);
-			mSocket = -1;
-#endif
-			std::cout << "Server stopped." << std::endl;
-		}
 
 		std::string TCP_Server::GetLastError()
 		{
@@ -234,98 +61,210 @@ namespace Essentials
 			return (port > -1 && port < 99999);
 		}
 
-		void TCP_Server::Monitor()
-		{
-			std::vector<std::thread> clientThreads;  // Store client threads
+}
+}
 
-			while (!mStopFlag) 
-			{
-				sockaddr_in clientAddress{};
-				socklen_t clientAddressLength = sizeof(clientAddress);
-				int32_t clientSocket = accept(mSocket, (struct sockaddr*)&clientAddress, &clientAddressLength);
+namespace Essentials
+{
+	namespace Communications
+	{
+        TCPServer::TCPServer(int port) : port_(port), serverSocket_(-1), monitoringThread_(&TCPServer::MonitorClients, this) {}
 
-				if (clientSocket == -1) 
-				{
-					mLastError = TcpServerError::ACCEPT_FAILED;
-					continue;
-				}
+        TCPServer::~TCPServer() {
+            if (serverSocket_ != -1) {
+                closesocket(serverSocket_);
+            }
 
-				// Convert client IP address to string
-				char clientIP[INET_ADDRSTRLEN];
-				inet_ntop(AF_INET, &(clientAddress.sin_addr), clientIP, INET_ADDRSTRLEN);
+            stopMonitoring_ = true;
+            if (monitoringThread_.joinable()) {
+                monitoringThread_.join();
+            }
+        }
 
-				// Print notification
-				std::cout << "New client connected: " << clientIP << std::endl;
+        void TCPServer::Start() {
+            if (InitializeServer()) {
+                std::cout << "Server started on port " << port_ << std::endl;
+                while (true) {
+                    int clientSocket = AcceptConnection();
+                    if (clientSocket != -1) {
+                        std::thread clientThread(&TCPServer::HandleClient, this, clientSocket);
+                        clientThread.detach(); // Detach the thread to allow it to run independently
+                    }
+                }
+            }
+            else {
+                std::cerr << "Failed to start the server." << std::endl;
+            }
+        }
 
-				// Handle the client connection in a separate thread
-				std::thread clientThread(&TCP_Server::HandleClient, this, clientSocket, clientIP);
-				clientThreads.push_back(std::move(clientThread));
+        void TCPServer::MonitorClients() {
+            while (!stopMonitoring_) {
+                std::this_thread::sleep_for(std::chrono::seconds(5)); // Adjust the interval as needed
 
-				// Clean up finished client threads
-				CleanUpClientThreads(clientThreads);
-			}
+                // Check and handle client disconnects or perform other monitoring tasks
+                CheckClientStatus();
+            }
+        }
 
-			// Wait for all client threads to finish
-			for (auto& thread : clientThreads) 
-			{
-				thread.join();
-			}
-		}
+        void TCPServer::ReceiveFileFromClient(int clientSocket) {
+            // Receive initial packet containing file information
+            char fileInfoBuffer[1024];
+            int bytesRead = recv(clientSocket, fileInfoBuffer, sizeof(fileInfoBuffer), 0);
 
-		void TCP_Server::HandleClient(int32_t clientSocket, const std::string& clientIP)
-		{
-			char buffer[1024];
-			int bytesRead;
+            if (bytesRead <= 0) {
+                std::cerr << "Error receiving file information from client." << std::endl;
+                return;
+            }
 
-			// Receive and process client messages
-			while ((bytesRead = recv(clientSocket, buffer, sizeof(buffer) - 1, 0)) > 0) 
-			{
-				// Null-terminate the received data
-				buffer[bytesRead] = '\0';
+            // Parse the received file information
+            std::string fileInfo(fileInfoBuffer, bytesRead);
+            size_t pos = fileInfo.find(':');
+            if (pos == std::string::npos) {
+                std::cerr << "Invalid file information format." << std::endl;
+                return;
+            }
 
-				// Display the received message
-				std::cout << "Received from client " << clientIP << ": " << buffer << std::endl;
+            std::string action = fileInfo.substr(0, pos);
+            fileInfo.erase(0, pos + 1);
 
-				// Echo back the message to the client
-				if (send(clientSocket, buffer, bytesRead, 0) == -1) 
-				{
-					mLastError = TcpServerError::ECHO_FAILED;
-					break;
-				}
-			}
+            pos = fileInfo.find(':');
+            if (pos == std::string::npos) {
+                std::cerr << "Invalid file information format." << std::endl;
+                return;
+            }
 
-			if (bytesRead == 0) 
-			{
-				// Client disconnected
-				std::cout << "Client disconnected: " << clientIP << std::endl;
-			}
-			else if (bytesRead == -1) 
-			{
-				// Error receiving data
-				std::cerr << "Error receiving data from client " << clientIP << std::endl;
-			}
+            std::string fileName = fileInfo.substr(0, pos);
+            fileInfo.erase(0, pos + 1);
 
-#ifdef WIN32
-			closesocket(clientSocket);
-#else
-			close(clientSocket);
-#endif
-		}
+            size_t fileSize = std::stoul(fileInfo);
 
-		void TCP_Server::CleanUpClientThreads(std::vector<std::thread>& clientThreads)
-		{
-			for (auto it = clientThreads.begin(); it != clientThreads.end();) 
-			{
-				if (it->joinable()) 
-				{
-					it->join();
-					it = clientThreads.erase(it);
-				}
-				else 
-				{
-					++it;
-				}
-			}
-		}
+            // Process the file based on the action
+            if (action == "UPLOAD") {
+                std::cout << "Receiving file from client. (Action: " << action << ", File: " << fileName << ", Size: " << fileSize << " bytes)" << std::endl;
+                ReceiveFileData(clientSocket, fileName, fileSize);
+            }
+            else {
+                std::cerr << "Unknown file action from client: " << action << std::endl;
+            }
+        }
+
+        bool TCPServer::InitializeServer() {
+            serverSocket_ = socket(AF_INET, SOCK_STREAM, 0);
+            if (serverSocket_ == -1) {
+                std::cerr << "Error creating server socket." << std::endl;
+                return false;
+            }
+
+            sockaddr_in serverAddress{};
+            serverAddress.sin_family = AF_INET;
+            serverAddress.sin_addr.s_addr = INADDR_ANY;
+            serverAddress.sin_port = htons(port_);
+
+            if (bind(serverSocket_, reinterpret_cast<struct sockaddr*>(&serverAddress), sizeof(serverAddress)) == -1) {
+                std::cerr << "Error binding server socket." << std::endl;
+                closesocket(serverSocket_);
+                return false;
+            }
+
+            if (listen(serverSocket_, 10) == -1) {
+                std::cerr << "Error listening on server socket." << std::endl;
+                closesocket(serverSocket_);
+                return false;
+            }
+
+            return true;
+        }
+
+        int TCPServer::AcceptConnection() {
+            sockaddr_in clientAddress{};
+            socklen_t clientAddressLen = sizeof(clientAddress);
+
+            int clientSocket = accept(serverSocket_, reinterpret_cast<struct sockaddr*>(&clientAddress), &clientAddressLen);
+            if (clientSocket == -1) {
+                std::cerr << "Error accepting connection." << std::endl;
+                return -1;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                clients_.push_back(clientSocket);
+            }
+
+            std::cout << "Client connected. (Socket: " << clientSocket << ")" << std::endl;
+
+            return clientSocket;
+        }
+
+        void TCPServer::HandleClient(int clientSocket) {
+            // Example: Receiving a file from the client
+            std::string fileName = "received_file.txt"; // Specify the desired file name
+            ReceiveFileFromClient(clientSocket);
+        }
+
+        void TCPServer::CheckClientStatus() {
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (auto it = clients_.begin(); it != clients_.end();) {
+                int clientSocket = *it;
+                char dummyBuffer[1];
+                int result = recv(clientSocket, dummyBuffer, sizeof(dummyBuffer), MSG_PEEK);
+
+                if (result == 0 || (result == -1 && errno == ECONNRESET)) {
+                    // Connection closed or reset by the client
+                    std::cout << "Client disconnected. (Socket: " << clientSocket << ")" << std::endl;
+                    closesocket(clientSocket);
+                    it = clients_.erase(it);
+                }
+                else {
+                    ++it;
+                }
+            }
+
+            // Perform other monitoring tasks as needed
+        }
+
+        void TCPServer::ReceiveFileData(int clientSocket, const std::string& fileName, size_t fileSize) {
+            std::ofstream outputFile(fileName, std::ios::out | std::ios::binary);
+            if (!outputFile.is_open()) {
+                std::cerr << "Error opening file for writing: " << fileName << std::endl;
+                return;
+            }
+
+            char buffer[1024];
+            size_t totalBytesReceived = 0;
+            const int timeoutSeconds = 10; 
+            size_t percentageThreshold = 10;
+
+            while (totalBytesReceived < fileSize) {
+                auto startTime = std::chrono::steady_clock::now();
+
+                int bytesRead = recv(clientSocket, buffer, sizeof(buffer), 0);
+                if (bytesRead <= 0) {
+                    std::cerr << "Error receiving file data from client." << std::endl;
+                    break;
+                }
+
+                outputFile.write(buffer, bytesRead);
+                totalBytesReceived += bytesRead;
+
+                auto endTime = std::chrono::steady_clock::now();
+                auto elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
+
+                if (elapsedSeconds > timeoutSeconds) {
+                    std::cerr << "Timeout: File data not received within " << timeoutSeconds << " seconds." << std::endl;
+                    break;
+                }
+
+                // Check percentage of received data
+                size_t percentageReceived = (totalBytesReceived * 100) / fileSize;
+                if (percentageReceived > percentageThreshold) {
+                    std::cout << "Received " << percentageReceived << "% of file data." << std::endl;
+                    percentageThreshold += 10; // Adjust the threshold increment as needed
+                }
+            }
+
+            outputFile.close();
+            std::cout << "File received from client. (File: " << fileName << ", Size: " << totalBytesReceived << " bytes)" << std::endl;
+        }
+
 	}
 }
